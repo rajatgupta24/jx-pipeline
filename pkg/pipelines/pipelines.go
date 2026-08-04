@@ -373,23 +373,37 @@ func addConditionsMessage(pr *pipelinev1.PipelineRun, pa *v1.PipelineActivity) {
 	}
 }
 
-// addConditionsMessage reads the pr and gets the message for each taskrun then add it to the pa as Spec.Steps[k].Stage.Message
-// It replace TaskRun with Stage
+// addTaskRunsMessage reads the TaskRun conditions and copies their message onto the
+// corresponding PipelineActivity step message. It replaces "TaskRun" with
+// "Stage" (or "Preview"/"Promote" for those step kinds) to match the
+// PipelineActivity terminology.
 func addTaskRunsMessage(taskruns []pipelinev1.TaskRun, pa *v1.PipelineActivity) {
-	k1 := 0
 	for i := range taskruns {
 		taskrun := taskruns[i]
 		msg := ""
-		for k2 := range taskrun.Status.Conditions {
-			msg = taskrun.Status.Conditions[k2].Message
+		for j := range taskrun.Status.Conditions {
+			msg = taskrun.Status.Conditions[j].Message
 		}
-		msg = strings.ReplaceAll(msg, "TaskRun", "Stage")
 		// Without this check, there is a panic in the codebase
 		// ToDo(@maintainers): Test case for this
-		if len(pa.Spec.Steps) > k1 {
-			pa.Spec.Steps[k1].Stage.Message = v1.ActivityMessageType(msg)
+		if len(pa.Spec.Steps) > i {
+			step := &pa.Spec.Steps[i]
+			repl := "Stage"
+			switch step.Kind {
+			case v1.ActivityStepKindTypePreview:
+				repl = "Preview"
+			case v1.ActivityStepKindTypePromote:
+				repl = "Promote"
+			}
+			updated := v1.ActivityMessageType(strings.ReplaceAll(msg, "TaskRun", repl))
+			if step.Stage != nil {
+				step.Stage.Message = updated
+			} else if step.Preview != nil {
+				step.Preview.Message = updated
+			} else if step.Promote != nil {
+				step.Promote.Message = updated
+			}
 		}
-		k1++
 	}
 }
 
